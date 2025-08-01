@@ -146,4 +146,4 @@ spy_daily_data = fetch_alpaca_data(symbol, '1D', start_date, end_date)
 dividends      = fetch_alpaca_dividends(symbol,start_date,end_date)
 
 
-print(spy_daily_data)
+#########################################
