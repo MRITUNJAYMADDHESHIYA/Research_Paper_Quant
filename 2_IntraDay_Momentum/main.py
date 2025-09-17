@@ -138,7 +138,7 @@ def fetch_alpaca_dividends(symbol, start_date, end_date):
     return pd.DataFrame(dividends_list)
 
 
-############################### Function ################
+############################### Function ##################################
 symbol = 'SPY'
 start_date     = '2023-06-05'
 end_date       = '2024-06-05'   
@@ -205,7 +205,7 @@ df = df.merge(dividends[['day', 'dividend']], on='day', how='left')
 df['dividend'] = df['dividend'].fillna(0)  # Fill missing dividend data with 0.
 
 
-############################# Backtesting
+############################# Backtesting ###################################
 # Constants and settings
 AUM_0 = 100000.0
 commission = 0.0035
