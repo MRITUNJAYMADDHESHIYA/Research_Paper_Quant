@@ -1,0 +1,1 @@
+1.Finding good research paper related to Quant, Strategy, Machine Learning and many more
