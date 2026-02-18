@@ -1,0 +1,15 @@
+Time series--> measured sequentially in time over some interval
+A series is Stationary :- Mean + variance + autocorrelation remain constant over time
+
+A time series is Stationary if it's mean, variance, autocovariance are constant over time.
+if not then transform it.(differencing + log transform + square/cube root)
+
+Stationary Models:-     MA(moving average) + AM(autoregressive model) = ARMA
+Non-Stationary Models:- ARIMA(Integrated) + ARCH() + GARCH()
+Coorelation:-           
+Forecasting:-  
+Stochastic Models:-     GBM(geometric Brownian motion) + Stochastic volatility
+Regression:-
+Multivariate Modeling:- 
+State-Space Models:-     Kalman Filter + Hidden Markov Model
+Vector Autoregressive(VAR):-
