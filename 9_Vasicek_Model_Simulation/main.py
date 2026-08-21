@@ -56,3 +56,4 @@ if __name__ == "__main__":
     simulated_paths = simulate_vasick_paths(theta, mu, sigma, r0, T, dt, num_simulations)
 
     plot_vasicek_paths(simulated_paths, T, dt)
+
