@@ -53,10 +53,10 @@ class DataLoader:
         df["Target"]        = (df["Close"].shift(-1) / df["Close"] - 1)
         
         print("\nMissing values before cleaning:")
-        feature_columns = ["return_1""return_5", "return_10", "rsi_14", "macd","volatility_20", "Target"]
+        feature_columns = ["return_1","return_5", "return_10", "rsi_14", "macd","volatility_20", "Target"]
         print(df[feature_columns].isna().sum())
 
-        df = df.dropna(subset=["Date", "Open", "High", "Low", "Close", "Volume", "return_1""return_5", "return_10", "rsi_14", "macd","volatility_20", "Target"])
+        df = df.dropna(subset=["Date", "Open", "High", "Low", "Close", "Volume", "return_1","return_5", "return_10", "rsi_14", "macd","volatility_20", "Target"])
         df = df.reset_index(drop=True)
         print("\nRows after cleaning:", len(df))
         print("\nCleaned data:")
