@@ -5,4 +5,3 @@
     predicted next return
             ↓
        trading signal
-
