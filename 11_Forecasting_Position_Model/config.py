@@ -5,13 +5,14 @@ DATA_PATH = "C:/Users/Mritunjay Maddhesiya/OneDrive/Desktop/Research_Paper/11_Fo
 DATE_COLUMN = "Date"
 
 FEATURES = [
-    "Open",
-    "High",
-    "Low",
-    "Close",
-    "Volume"
+    "return_1",
+    "return_5",
+    "return_10",
+    "rsi_14",
+    "macd",
+    "volatility_20"
 ]
-TARGET      = "Return"
+TARGET      = "Target"
 
 WINDOW_SIZE = 100
 TRAIN_RATIO = 0.80
