@@ -39,7 +39,8 @@ class DataLoader:
 
         df = df.sort_values("Date")
         df = df.drop_duplicates(subset=["Date"])
-        df["Return"] = (df["Close"].pct_change())
+        df["Return"] = (df["Close"].pct_change(-1))
+        
         print("\nMissing values before cleaning:")
         print(df[["Date", "Open", "High", "Low", "Close", "Volume", "Return"]].isna().sum())
 
