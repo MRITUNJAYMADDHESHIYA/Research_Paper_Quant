@@ -50,13 +50,19 @@ class DataLoader:
         df["macd"]          = macd.macd()
         df["rsi_14"]        = rsi.rsi()
         df["volatility_20"] = (df["return_1"].rolling(20).std())
-        df["Target"]        = (df["Close"].shift(-1) / df["Close"] - 1)
+        df["ma20"]          = (df["Close"].rolling(20).mean())
+        df["ma50"]          = (df["Close"].rolling(50).mean())
+        df["dist_ma20"]     = (df["Close"] / df["ma20"] - 1)
+        df["dist_ma50"]     = (df["Close"] / df["ma50"] - 1)
+        df["momentum20"]    = (df["Close"] .pct_change(20))
+        df["volume_change"] = (df["Volume"].pct_change())
+        df["Target"]        = (df["Close"].shift(-5) / df["Close"] - 1)
         
         print("\nMissing values before cleaning:")
-        feature_columns = ["return_1","return_5", "return_10", "rsi_14", "macd","volatility_20", "Target"]
+        feature_columns = ["return_1","return_5", "return_10", "rsi_14", "macd","volatility_20", "dist_ma20", "dist_ma50", "momentum20", "volume_change", "Target"]
         print(df[feature_columns].isna().sum())
 
-        df = df.dropna(subset=["Date", "Open", "High", "Low", "Close", "Volume", "return_1","return_5", "return_10", "rsi_14", "macd","volatility_20", "Target"])
+        df = df.dropna(subset=["Date", "Open", "High", "Low", "Close", "Volume", "return_1","return_5", "return_10", "rsi_14", "macd", "volatility_20", "dist_ma20", "dist_ma50", "momentum20", "volume_change", "Target"])
         df = df.reset_index(drop=True)
         print("\nRows after cleaning:", len(df))
         print("\nCleaned data:")

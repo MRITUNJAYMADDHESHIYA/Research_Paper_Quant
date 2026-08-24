@@ -10,7 +10,11 @@ FEATURES = [
     "return_10",
     "rsi_14",
     "macd",
-    "volatility_20"
+    "volatility_20",
+    "dist_ma20",
+    "dist_ma50",
+    "momentum20",
+    "volume_change"
 ]
 TARGET      = "Target"
 
