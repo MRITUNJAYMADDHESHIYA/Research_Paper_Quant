@@ -5,32 +5,24 @@ import statistics
 
 ENGINE_PARTICIPATION_CAP = 0.25
 
-
 def safe_number(x):
-    """Return a finite float, otherwise zero."""
     try:
         x = float(x)
     except Exception:
         return 0.0
-
     if not math.isfinite(x):
         return 0.0
-
     return x
 
 
 def positive_mean(values):
-    """Mean of positive finite values."""
     clean = []
-
     for x in values:
         x = safe_number(x)
         if x > 0.0:
             clean.append(x)
-
     if not clean:
         return 0.0
-
     return sum(clean) / len(clean)
 
 
@@ -50,7 +42,6 @@ def robust_location(values):
 
 
 def rms(values):
-    """Root-mean-square, used as an online volatility estimate."""
     clean = []
 
     for x in values:
@@ -65,10 +56,6 @@ def rms(values):
 
 
 def geometric_blend(a, b):
-    """
-    Scale-free blend.
-    If either estimate is unavailable, use the available one.
-    """
     a = max(safe_number(a), 0.0)
     b = max(safe_number(b), 0.0)
 
@@ -81,12 +68,6 @@ def geometric_blend(a, b):
 
 
 def clamp_rule_based(value, upper):
-    """
-    Non-negative clipping.
-
-    `upper` is always derived from a rule or current state,
-    not from a fitted market threshold.
-    """
     if value < 0.0:
         return 0.0
 
@@ -205,7 +186,7 @@ class MyBot(Bot):
         # --------------------------------------------------------------
 
         denominator = max(volatility_ratio, 1.0)
-        quality = ( volume_ratio /denominator)
+        quality = ( 1.0 /denominator)
         if not math.isfinite(quality) or quality <= 0.0:
             quality = 1.0
 
@@ -243,7 +224,7 @@ class MyBot(Bot):
         if not active:
             return {}
 
-        ################ Backtest #########
+        ################ Backtest ###################
         completion = {}
         for sym in active:
             completion[sym] = self.completion_fraction(state, sym)
@@ -251,49 +232,31 @@ class MyBot(Bot):
         basket_completion = (sum(completion.values())/len(completion))
         orders = {}
 
-        # --------------------------------------------------------------
-        # Individual-leg execution decision.
-        # --------------------------------------------------------------
-
+    
         for sym in active:
             mandate = safe_number(state.mandate.get(sym, 0.0))
             remaining = safe_number(state.remaining.get(sym, 0.0))
             remaining_abs = abs(remaining)
 
-            # ----------------------------------------------------------
-            # Minimum average quantity required per remaining bar.
-            # ----------------------------------------------------------
-
             required_rate = (remaining_abs/bars_left)
-
-            # ----------------------------------------------------------
-            # Online liquidity estimate.
-            # ----------------------------------------------------------
 
             expected_volume, volume_surprise = (self.estimate_liquidity(state, sym))
             regime_quality = self.regime_factor(state,sym)
 
-            # ----------------------------------------------------------
-            # Estimated executable capacity.
-            #
-            # The 25% factor is a competition rule, not an optimized
-            # strategy parameter.
-            # ----------------------------------------------------------
 
-            expected_bar_capacity = (ENGINE_PARTICIPATION_CAP* expected_volume* regime_quality)
+            expected_bar_capacity        = (ENGINE_PARTICIPATION_CAP* expected_volume* regime_quality)
             estimated_remaining_capacity = (expected_bar_capacity* bars_left)
+
             if estimated_remaining_capacity > 0.0:
                 feasibility_pressure = (remaining_abs/ estimated_remaining_capacity)
             else:
                 feasibility_pressure = 1.0
-            if (not math.isfinite(feasibility_pressure)
-                or feasibility_pressure <= 0.0
-            ):  feasibility_pressure = 1.0
+            if (not math.isfinite(feasibility_pressure) or feasibility_pressure <= 0.0):  feasibility_pressure = 1.0
 
             
             liquidity_opportunity = math.sqrt(max(volume_surprise, 0.0))
-            schedule_progress = (1.0 - bars_left / max(state.n_bars, 1))
-            total_qty = abs(mandate)
+            schedule_progress     = (1.0 - bars_left / max(state.n_bars, 1))
+            total_qty             = abs(mandate)
 
             if total_qty > 0.0:
                 inventory_progress = (1.0 - remaining_abs / total_qty)
@@ -302,21 +265,19 @@ class MyBot(Bot):
 
 
             schedule_gap = (schedule_progress- inventory_progress)
-            urgency      = math.exp(schedule_gap)
+            urgency      = math.exp(min(max(schedule_gap, -2.0), 2.0))
             sync_gap     = (basket_completion - completion[sym])
-            sync_factor  = math.exp(sync_gap)
-            adaptive_multiplier = math.sqrt(liquidity_opportunity * urgency  * sync_factor)
+            sync_factor  = math.exp(min(max(sync_gap, -2.0), 2.0))
+            adaptive_multiplier = math.sqrt(urgency  * sync_factor)
 
 
-            if (
-                not math.isfinite(adaptive_multiplier)
-                or adaptive_multiplier <= 0.0
-            ):
+            if (not math.isfinite(adaptive_multiplier) or adaptive_multiplier <= 0.0):
                 adaptive_multiplier = 1.0
 
             desired         = required_rate * adaptive_multiplier
             future_capacity = (expected_bar_capacity*max(bars_left - 1, 0))
-            must_trade_now  = max(0.0, remaining_abs - future_capacity)
+            shortfall_risk  = max(0.0, remaining_abs - future_capacity)
+            must_trade_now  = math.sqrt(shortfall_risk * required_rate) if shortfall_risk > 0.0 else 0.0
             desired         = max(desired, must_trade_now)
             last_volume     = safe_number(state.last_volume.get(sym, 0.0))
 
