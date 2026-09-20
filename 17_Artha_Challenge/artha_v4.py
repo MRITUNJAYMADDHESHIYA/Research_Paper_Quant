@@ -5,6 +5,18 @@ import statistics
 
 ENGINE_PARTICIPATION_CAP = 0.25
 
+# --- Tunables introduced in this revision ---------------------------------
+# How aggressively we shrink target size when the crowd is unusually active.
+# 1.0 = full sqrt-dampening, 0.0 = no dampening at all.
+CROWD_DAMPEN_STRENGTH = 1.0
+# Floor on the crowd dampener so we never fully stop trading voluntarily.
+CROWD_DAMPEN_FLOOR = 0.3
+# Exponential clip range for urgency / sync_factor. Was 2.0; narrowed to
+# reduce lumpy catch-up trades that were driving impact + crowding cost.
+ADAPTIVE_CLIP = 1.0
+# ---------------------------------------------------------------------------
+
+
 def safe_number(x):
     try:
         x = float(x)
@@ -77,6 +89,27 @@ def clamp_rule_based(value, upper):
     return value
 
 
+def crowd_factor(volume_surprise):
+    """
+    Dampen voluntary participation when current volume is running hot
+    relative to its expected level. High volume_surprise typically means
+    the rest of the field is also active right now -- exactly the bars
+    where "congestion" cost (crowding) is paid, regardless of our own
+    share of the tape. We shrink our own target size in those bars and
+    let a floor prevent us from ever fully going dark.
+
+    volume_surprise <= 1.0 (quiet/normal bar): no penalty.
+    volume_surprise  > 1.0 (hot/crowded bar): shrink ~1/sqrt(surprise).
+    """
+    volume_surprise = safe_number(volume_surprise)
+    if volume_surprise <= 1.0:
+        return 1.0
+
+    damp = 1.0 / math.sqrt(volume_surprise)
+    damp = damp ** CROWD_DAMPEN_STRENGTH
+    return max(damp, CROWD_DAMPEN_FLOOR)
+
+
 class MyBot(Bot):
     def __init__(self):
         self.previous_mid   = {}
@@ -100,13 +133,12 @@ class MyBot(Bot):
             if mid > 0.0:
                 self.previous_mid[sym] = mid
 
-  
     def recent_window_length(self, n):
         if n <= 1:
             return n
         return max(1, int(math.sqrt(n)))
 
-   ########### Liquidity ##########################
+    ########### Liquidity ##########################
     def estimate_liquidity(self, state, sym):
         history = list(state.volume_history.get(sym, []))
         clean = []
@@ -154,7 +186,7 @@ class MyBot(Bot):
             if v > 0.0:
                 clean_volumes.append(v)
 
-        returns = self.return_history.get(sym,[])
+        returns = self.return_history.get(sym, [])
 
         ############ Volume Regime ##############
         volume_ratio = 1.0
@@ -178,21 +210,14 @@ class MyBot(Bot):
             if (recent_volatility > 0.0 and all_volatility > 0.0):
                 volatility_ratio = (recent_volatility / all_volatility)
 
-        # --------------------------------------------------------------
-        # Continuous liquidity quality.
-        #
-        # Low volume and high volatility reduce the amount of future
-        # liquidity we trust. There is no binary shock threshold.
-        # --------------------------------------------------------------
-
         denominator = max(volatility_ratio, 1.0)
-        quality = ( 1.0 /denominator)
+        quality = (1.0 / denominator)
         if not math.isfinite(quality) or quality <= 0.0:
             quality = 1.0
 
         return quality
 
-   ######### Completion state ##############
+    ######### Completion state ##############
     def completion_fraction(self, state, sym):
         mandate = safe_number(state.mandate.get(sym, 0.0))
         remaining = safe_number(state.remaining.get(sym, 0.0))
@@ -202,9 +227,9 @@ class MyBot(Bot):
             return 1.0
 
         done = (total - abs(remaining))
-        return clamp_rule_based( done / total, 1.0)
+        return clamp_rule_based(done / total, 1.0)
 
-   ############## Bar ################
+    ############## Bar ################
     def on_bar(self, state):
         self.update_returns(state)
         bars_left = max(int(state.bars_left), 1)
@@ -229,32 +254,23 @@ class MyBot(Bot):
         for sym in active:
             completion[sym] = self.completion_fraction(state, sym)
 
-        basket_completion = (sum(completion.values())/len(completion))
+        basket_completion = (sum(completion.values()) / len(completion))
         orders = {}
 
-    
         for sym in active:
             mandate = safe_number(state.mandate.get(sym, 0.0))
             remaining = safe_number(state.remaining.get(sym, 0.0))
             remaining_abs = abs(remaining)
 
-            required_rate = (remaining_abs/bars_left)
+            required_rate = (remaining_abs / bars_left)
 
             expected_volume, volume_surprise = (self.estimate_liquidity(state, sym))
-            regime_quality = self.regime_factor(state,sym)
+            regime_quality = self.regime_factor(state, sym)
 
+            expected_bar_capacity        = (ENGINE_PARTICIPATION_CAP * expected_volume * regime_quality)
+            estimated_remaining_capacity = (expected_bar_capacity * bars_left)
 
-            expected_bar_capacity        = (ENGINE_PARTICIPATION_CAP* expected_volume* regime_quality)
-            estimated_remaining_capacity = (expected_bar_capacity* bars_left)
-
-            if estimated_remaining_capacity > 0.0:
-                feasibility_pressure = (remaining_abs/ estimated_remaining_capacity)
-            else:
-                feasibility_pressure = 1.0
-            if (not math.isfinite(feasibility_pressure) or feasibility_pressure <= 0.0):  feasibility_pressure = 1.0
-
-            
-            liquidity_opportunity = math.sqrt(max(volume_surprise, 0.0))
+            liquidity_opportunity = math.sqrt(max(volume_surprise, 0.0))  # kept for diagnostics
             schedule_progress     = (1.0 - bars_left / max(state.n_bars, 1))
             total_qty             = abs(mandate)
 
@@ -263,32 +279,49 @@ class MyBot(Bot):
             else:
                 inventory_progress = 1.0
 
-
-            schedule_gap = (schedule_progress- inventory_progress)
-            urgency      = math.exp(min(max(schedule_gap, -2.0), 2.0))
+            schedule_gap = (schedule_progress - inventory_progress)
+            urgency      = math.exp(min(max(schedule_gap, -ADAPTIVE_CLIP), ADAPTIVE_CLIP))
             sync_gap     = (basket_completion - completion[sym])
-            sync_factor  = math.exp(min(max(sync_gap, -2.0), 2.0))
-            adaptive_multiplier = math.sqrt(urgency  * sync_factor)
-
+            sync_factor  = math.exp(min(max(sync_gap, -ADAPTIVE_CLIP), ADAPTIVE_CLIP))
+            adaptive_multiplier = math.sqrt(urgency * sync_factor)
 
             if (not math.isfinite(adaptive_multiplier) or adaptive_multiplier <= 0.0):
                 adaptive_multiplier = 1.0
 
-            desired         = required_rate * adaptive_multiplier
-            future_capacity = (expected_bar_capacity*max(bars_left - 1, 0))
+            desired = required_rate * adaptive_multiplier
+
+            # --- Crowd avoidance -------------------------------------------------
+            # Shrink the voluntary target when this bar's volume is running hot
+            # relative to what's typical for this symbol. This is the fix for
+            # the "trading when everybody trades" cost: previously
+            # `liquidity_opportunity` was computed and discarded, so the bot had
+            # zero live reaction to congestion. must_trade_now (below) is applied
+            # AFTER this dampening, so exposure safety is never compromised.
+            desired = desired * crowd_factor(volume_surprise)
+            # -----------------------------------------------------------------
+
+            future_capacity = (expected_bar_capacity * max(bars_left - 1, 0))
             shortfall_risk  = max(0.0, remaining_abs - future_capacity)
             must_trade_now  = math.sqrt(shortfall_risk * required_rate) if shortfall_risk > 0.0 else 0.0
             desired         = max(desired, must_trade_now)
             last_volume     = safe_number(state.last_volume.get(sym, 0.0))
 
-            if last_volume > 0.0:
+            # Cap sizing off *expected* (steady-state) volume rather than
+            # last_volume. Capping off last_volume loosened the ceiling exactly
+            # when the tape was hot -- i.e. exactly when the crowd shows up --
+            # which is the mechanical driver of the crowding cost. Expected
+            # volume gives a stable ceiling that doesn't chase transient spikes.
+            if expected_volume > 0.0:
+                proxy_capacity = (ENGINE_PARTICIPATION_CAP * expected_volume)
+                desired = min(desired, max(proxy_capacity, must_trade_now))
+            elif last_volume > 0.0:
                 proxy_capacity = (ENGINE_PARTICIPATION_CAP * last_volume)
                 desired = min(desired, max(proxy_capacity, must_trade_now))
-            
+
             if bars_left == 1:
                 desired = remaining_abs
 
-            desired = min(desired,remaining_abs)
+            desired = min(desired, remaining_abs)
 
             if not math.isfinite(desired):
                 continue
@@ -302,13 +335,3 @@ class MyBot(Bot):
                 orders[sym] = -desired
 
         return orders
-
-
-
-#### 1.Building an Execution algorithm(fill with small cost)
-#### 2.Impact:- Did I trade too aggresively(My footprint)
-#### 3.Crowding:- Did I trade when everybody else traded
-#### 4.Exposure:- How much unfinished work did I carry
-#### 5.Carry:-    Did I keep the hedge synchronized
-##   ASHVAM suddenly has excellent liquidity and you want to execute 20% of it. But if BRIHAT doesn't have corresponding liquidity, aggressively trading ASHVAM could reduce impact while increasing carry.
-
