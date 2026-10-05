@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-class BaseStrategy(ABC):
+class Strategy(ABC):
     def __init__(self, broker):
         self.broker = broker
 

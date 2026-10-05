@@ -10,7 +10,7 @@ class Broker:
         self.position     = 0.0
         self.average_price = 0.0
 
-        self.commission = commission
+        self.commission_rate = commission
         self.slippage   = slippage
 
         self.pending_orders = []
@@ -22,17 +22,22 @@ class Broker:
 
         self.entry_price    = None
         self.entry_time     = None
+        self.stop_price     = None
+        self.exit_reason    = None
+        self.stop_loss_pct  = None
 
         self.realized_pnl   = 0.0
 
-    def buy(self, quantity, signal_time=None):
+    def buy(self, quantity, signal_time=None, stop_loss_pct=None,):
         if quantity <= 0:
             raise ValueError("Quantity must be positive")
 
         order = Order(side=OrderSide.BUY, quantity=quantity, signal_time=signal_time)
+        order.stop_price = stop_loss_pct
+
         self.pending_orders.append(order)
 
-    def sell(self, quantity):
+    def sell(self, quantity, signal_time=None):
         if quantity <=0:
             raise ValueError("Quantity must be positive")
 
@@ -72,12 +77,14 @@ class Broker:
 
         self.order_history.append(order)
 
-        # New position
+        ##### New position
         if self.entry_price is None:
-
             self.entry_price = price
-            self.entry_time = bar.datetime
+            self.entry_time  = bar.datetime
 
+            ### calculate stop from actual fill price
+            if order.stop_price is not None:
+                self.stop_price = (price *(1 - order.stop_price))
 
     def _execute_sell(self, order, bar):
         if order.quantity > self.position:
@@ -130,9 +137,56 @@ class Broker:
             "equity": equity
         })
 
-    ####### current equity
+    ####### current equity ###########
     def get_equity(self, price):
         return (self.cash + self.position * price)
 
+    def _close_position(self, price, timestamp, reason):
+            if self.position <= 0:
+                return
 
-    
+            quantity   = self.position
+            value      = (quantity * price)
+            commission = (value *self.commission_rate)
+            proceeds   = (value -commission)
+            self.cash += proceeds
+
+            gross_pnl    = (price - self.entry_price) * quantity
+            net_pnl      = (gross_pnl - commission)
+            trade_return = (price / self.entry_price - 1)
+
+            self.trade_history.append({
+                "entry_time":self.entry_time,
+                "exit_time":timestamp,
+                "entry_price":self.entry_price,
+                "exit_price":price,
+                "quantity":quantity,
+                "pnl":net_pnl,
+                "return":trade_return,
+                "exit_reason":reason
+            })
+
+            self.position = 0
+            self.average_price = 0
+            self.entry_price = None
+            self.entry_time = None
+            self.stop_price = None
+
+    def check_stop_loss(self, bar):
+        if self.position <= 0:
+            return
+
+        if self.stop_price is None:
+            return
+
+        #### stop not touched
+        if bar.low > self.stop_price:
+            return
+
+        #### gap below stop
+        if bar.open <= self.stop_price:
+            execution_price = (bar.open * (1 - self.slippage))
+        else:
+            execution_price = (self.stop_price * (1 - self.slippage))
+
+        self._close_position(price = execution_price, timestamp=bar.datetime, reason="STOP_LOSS")

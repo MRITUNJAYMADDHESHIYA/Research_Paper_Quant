@@ -8,7 +8,7 @@ from collections import deque
 from strategies.base import Strategy
 
 class SMAStrategy(Strategy):
-    def __init__(self, broker, fast=10, slow=30):
+    def __init__(self, broker, risk_manager, fast=10, slow=30):
         super().__init__(broker)
 
         self.fast           = fast
@@ -16,7 +16,8 @@ class SMAStrategy(Strategy):
         self.prices         = deque(maxlen=slow)
         self.previous_fast  = None
         self.previous_slow  = None
-        self.pending_singal = False
+        
+        self.risk_manager   = (risk_manager)
 
 
     def on_bar(self, bar):
@@ -28,7 +29,7 @@ class SMAStrategy(Strategy):
         fast_sma = (sum(prices[-self.fast:]) / self.fast)
         slow_sma = (sum(prices) / self.slow)
 
-        if self.previous_fast is not None:
+        if self.previous_fast is None:
             self.previous_fast = fast_sma
             self.previous_slow = slow_sma
             return
@@ -36,13 +37,14 @@ class SMAStrategy(Strategy):
         bullish_cross   = (self.previous_fast <= self.previous_slow and fast_sma > slow_sma)
         bearish_cross   = (self.previous_fast >= self.previous_slow and fast_sma < slow_sma)
 
-        if bullish_cross and self.broker.position == 0:
-            capital = (self.broker.cash * 0.95) ## invest 95% capital
-            quantity = (capital / bar.close)
-            self.broker.buy(quantity = quantity, signal_time = bar.datetime)
+        ########### Entry ###########
+        if (bullish_cross and self.broker.position == 0 and self.risk_manager.can_trade()):
+            equity   = (self.broker.get_equity(bar.close))
+            quantity = (self.risk_manager.calculate_position_size(equity=equity, cash=self.broker.cash, entry_price = bar.close))
+            self.broker.buy(quantity = quantity, signal_time = bar.datetime, stop_loss_pct=self.risk_manager.stop_loss_pct)
 
         elif bearish_cross and self.broker.position > 0:
-            self.broker.sell(quantity = self.broker.position, signal_time=bar.datetime)
+            self.broker.sell(quantity = self.broker.position, signal_time = bar.datetime)
 
         self.previous_fast = fast_sma
         self.previous_slow = slow_sma
