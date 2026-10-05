@@ -68,7 +68,7 @@ class Broker:
             self.filled_orderes.append({
                 "timestamp": bar.timestamp,
                 "side":      order.side.value,
-                "quantity":  order.quntity,
+                "quantity":  order.quantity,
                 "price":     price,
                 "commission":fee
             })
