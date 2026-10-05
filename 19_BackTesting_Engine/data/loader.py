@@ -2,47 +2,55 @@ import pandas as pd
 from data.market_data import Bar
 
 class CSVLoader:
-    def __init__(self, filepath, column_map=None):
+    def __init__(self, filepath):
         self.filepath = filepath
-        self.column_map = column_map or {}
 
     def load(self):
         df = pd.read_csv(self.filepath)
-        df = df.rename(columns=self.column_map)
         df.columns = df.columns.str.lower().str.strip()
 
-        required = ["datetime", "open", "high", "low", "close", "volume"]
-        missing  = [col for col in required if col not in df.columns]
-        if missing:
-            raise ValueError(f"Missing columns: {missing}")
-        ["datetime"] = pd.to_datetime(df["datetime"], errors="raise")
+        required = ["date", "open", "high", "low", "close", "volume"]
+        for column in required:
+            if column not in df.columns:
+                raise ValueError(f"Missing required column: {column}")
 
-        for col in required[1:]: #### list/array/tuple skip first one
-            df[col] = pd.to_numeric(df[col], errors = "raise")
+        # Convert timestamp
+        df["date"] = pd.to_datetime(df["date"])
 
-        if df[required].isna().any().any():
-            raise ValueError("CSV contains missing values")
-        if df["datetime"].duplicated().any():
-            raise ValueError("Duplicate timestamps found")
+        # Sort chronologically
+        df = df.sort_values("date")
 
-        if((df[["open", "high", "low", "close"]] <= 0).any().any()):
-            raise ValueError("Invalid OHLC prices")
+        # Remove duplicate candles
+        df = df.drop_duplicates(subset=["date"], keep="first")
 
-        if(df["volume"] < 0).any():
-            raise ValueError("Negative volume found")
-
-        if((df["high"] < df[["open", "close", "low"]].max(axis=1)).any() or
-           (df["low"] > df[["open", "close", "high"]].min(axis=1)).any()):
-            raise ValueError("Invalid OHLC realtionships")
-
-
-        df = df.sort_values("datetime")
+        # Basic validation
+        if df[required].isnull().any().any():
+            raise ValueError("Missing OHLCV values found")
+        
         bars = []
-        for row in df.itertuples(index=False):
-            bars.append(Bar(timestamp= row.datetime,
-                            open= float(row.open),
-                            high=float(row.high),
-                            low=float(row.low),
-                            close=float(row.close),
-                            volume=float(row.volume)))
+        for _, row in df.iterrows():
+            bar = Bar(
+                datetime=row["date"],
+                open    = float(row["open"]),
+                high    = float(row["high"]),
+                low     = float(row["low"]),
+                close   = float(row["close"]),
+                volume  = float(row["volume"]),
+
+                quote_asset_volume  = float(row.get("quote_asset_volume", 0)),
+                num_trades          = int(row.get("num_trades", 0)),
+                taker_buy_base      = float(row.get("taker_buy_base", 0)),
+                taker_buy_quote     = float(row.get("taker_buy_quote", 0)),
+                bid_volume          = float(row.get("bid_volume", 0)),
+                ask_volume          = float(row.get("ask_volume", 0)),
+                total_volume        = float(row.get("total_volume", row["volume"]))
+            )
+
+            bars.append(bar)
+
+        print("CSV loaded successfully")
+        print(f"Total candles : {len(bars)}")
+        print(f"Start         : {bars[0].datetime}")
+        print(f"End           : {bars[-1].datetime}")
+
         return bars

@@ -7,23 +7,23 @@ class BacktestEngine:
         self.broker    = broker
 
     def run(self):
-        if not self.bars:
-            raise ValueError("No market data provided")
+        print("\n Starting Backtest....")
+        print("-"*50)
 
         for bar in self.bars:
 
-            ## 1. fill orders from previous bars
+            ## 1. execute previous candle orders using current candle open
             self.broker.execute_orders(bar)
 
             ## 2. generate signals using current bar
             self.strategy.on_bar(bar)
 
-            ## 3. Record current portfolio equity
+            ## 3. mark portfolio at close
             self.broker.update_equity(bar)
 
 
-        ## Order submitted on the final candle
-        ## cannot executes without another candle
-        self.broker.pending_orders.clear()
+        print("Backtest Finished")
+        print("-"*50)
 
         return self.broker
+    

@@ -12,9 +12,11 @@ class OrderStatus(Enum):
 
 @dataclass
 class Order:
-    side:     OrderSide
-    quantity: float
-    status:   OrderStatus = OrderStatus.PENDING
-    fill_price: float | None = None
-    commission: float = 0.0
+    side:        OrderSide
+    quantity:    float
+    status:      OrderStatus = OrderStatus.PENDING
+    signal_time: object = None
+    fill_time:   object = None
+    fill_price:  float = 0.0
+    commission:  float = 0.0
 
