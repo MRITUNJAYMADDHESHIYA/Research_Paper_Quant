@@ -190,3 +190,5 @@ class Broker:
             execution_price = (self.stop_price * (1 - self.slippage))
 
         self._close_position(price = execution_price, timestamp=bar.datetime, reason="STOP_LOSS")
+
+        

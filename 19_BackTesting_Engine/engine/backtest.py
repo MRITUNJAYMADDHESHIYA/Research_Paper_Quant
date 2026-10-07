@@ -1,5 +1,4 @@
 
-
 class BacktestEngine:
     def __init__(self, bars, strategy, broker, risk_manager):
         self.bars      = bars

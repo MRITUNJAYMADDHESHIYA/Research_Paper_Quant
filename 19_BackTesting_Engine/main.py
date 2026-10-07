@@ -22,3 +22,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+### Broker:-       executes orders
+### risk_manager:- position, sl, daily DD, 
+### strategy:-     generates decision
+### engine:-       controls time
+### analyzer:-     results
