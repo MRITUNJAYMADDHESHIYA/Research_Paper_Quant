@@ -1,194 +1,258 @@
 ### Manages capital, positions, pending orders, transaction consts and the equity
 
-from broker.order import Order, OrderStatus, OrderSide
+from broker.enums import (OrderSide, OrderStatus, OrderType,TimeInForce,ExitReason)
+from broker.order import Order
+from broker.fill import Fill
+from broker.position import Position
+from broker.commission import PercentageCommission
+from broker.slippage import PercentageSlippage
+from broker.execution import ExecutionEngine
 
 class Broker:
-    def __init__(self, initial_cash = 100000, commission=0.0002, slippage=0.0001):
+    def __init__(self, initial_cash = 10000, commission_rate=0.0002, slippage_rate=0.0001, max_volume_participation=0.10, allow_short=True):
         self.initial_cash = float(initial_cash)
         self.cash         = float(initial_cash)
 
-        self.position     = 0.0
-        self.average_price = 0.0
+        self.commission_model = PercentageCommission(commission_rate)
+        self.slippage_model   = PercentageSlippage(slippage_rate)
+        self.execution_engine = ExecutionEngine(max_volume_participation)
+        self.allow_short      = allow_short
 
-        self.commission_rate = commission
-        self.slippage   = slippage
+        self.position         = Position
+
 
         self.pending_orders = []
-
         self.order_history  = []
-        self.trade_history  = []
+        self.fill_history   = []
 
-        self.equity_curve   = []
+        self.total_commission = 0.0
+        self.realized_pnl     = 0.0
+        self.equity_curve     = []
 
-        self.entry_price    = None
-        self.entry_time     = None
-        self.stop_price     = None
-        self.exit_reason    = None
-        self.stop_loss_pct  = None
-
-        self.realized_pnl   = 0.0
-
-    def buy(self, quantity, signal_time=None, stop_loss_pct=None,):
+    def submit_order(self, side, quantity, order_type=OrderType.MARKET, signal_time=None, limit_price=None, stop_price=None, time_in_force=TimeInForce.GTC, reduce_only=False, tag=None):
         if quantity <= 0:
             raise ValueError("Quantity must be positive")
 
-        order = Order(side=OrderSide.BUY, quantity=quantity, signal_time=signal_time)
-        order.stop_price = stop_loss_pct
+        if(order_type == OrderType.LIMIT and limit_price is None):
+            raise ValueError("LIMIT order requires limit_price")
 
+        if (order_type == OrderType.STOP and stop_price is None):
+            raise ValueError("STOP order requires stop_price")
+
+        if (order_type == OrderType.STOP_LIMIT and (stop_price is None or limit_price is None)):
+            raise ValueError("STOP_LIMIT requires stop_price " "and limit_price")
+
+        order = Order(
+            side=side,
+            quantity=float(quantity),
+            order_type=order_type,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            signal_time=signal_time,
+            time_in_force=time_in_force,
+            reduce_only=reduce_only,
+            tag=tag
+        )
+
+        order.status = (OrderStatus.PENDING)
         self.pending_orders.append(order)
+        return order
 
-    def sell(self, quantity, signal_time=None):
-        if quantity <=0:
-            raise ValueError("Quantity must be positive")
 
-        order = Order(side=OrderSide.SELL, quantity=quantity, signal_time=signal_time)
-        self.pending_orders.append(order)
+    def buy(self, quantity, signal_time=None, tag=None):
+        return self.submit_order(side=OrderSide.BUY, quantity=quantity, order_type=OrderType.MARKET, signal_time=signal_time, tag=tag)
 
-    def execute_orders(self, bar):
-        orders = self.pending_orders.copy()
-        self.pending_orders.clear()
+    def sell(self, quantity, signal_time=None, reduce_only=False, tag=None):
+        return self.submit_order(side=OrderSide.SELL, quantity=quantity, order_type=OrderType.MARKET, signal_time=signal_time, reduce_only=reduce_only, tag=tag)
 
-        for order in orders:
-            if order.side == OrderSide.BUY:
-                self._execute_buy(order, bar)
-            elif order.side == OrderSide.SELL:
-                self._execute_sell(order, bar)
+    def limit_buy(self, quantity, limit_price, signal_time=None):
+        return self.submit_order(OrderSide.BUY, quantity, OrderType.LIMIT, signal_time, limit_price=limit_price)
 
-    def _execute_buy(self, order, bar):
-        price = (bar.open * (1 + self.slippage))
-        value = (price * order.quantity)
-        commission = (value * self.commission_rate)
-        total_cost = (value + commission)
+    def limit_sell(self, quantity, limit_price, signal_time=None):
+        return self.submit_order(OrderSide.SELL,  quantity, OrderType.LIMIT, signal_time, limit_price=limit_price)
 
-        if total_cost > self.cash:
-            order.status = (OrderStatus.REJECTED)
-            self.order_history.append(order)
+    def stop_buy(self, quantity, stop_price, signal_time=None):
+        return self.submit_order(OrderSide.BUY, quantity, OrderType.STOP, signal_time, stop_price=stop_price)
+
+    def stop_sell(self, quantity, stop_price, signal_time=None, reduce_only=True, tag="STOP_LOSS"):
+        return self.submit_order(side=OrderSide.SELL, quantity=quantity, order_type=OrderType.STOP, signal_time=signal_time, stop_price=stop_price, reduce_only=reduce_only, tag=tag)
+
+    def cancel_order(self, order_id):
+        for order in self.pending_orders:
+            if(order.id == order_id and order.is_active):
+                order.status = (OrderStatus.CANCELLED)
+                self.order_history.append(order)
+                self.pending_orders = [x for x in self.pending_orders if x.id != order_id]
+                return True
+        return False
+
+    ######### Execution ##############
+    def process_bar(self, bar):
+        if not self.pending_orders:
             return
 
-        old_value          = (self.position * self.average_price)
-        self.cash         -= total_cost
-        self.position     += order.quantity
-        self.average_price = (old_value + value) / self.position
-        order.status       = OrderStatus.FILLED
+        #### Liquidity available for this bar
+        available_volume = (self.execution_engine.available_quantity(bar))
+        surviving_orders = []
 
-        order.fill_price = price
-        order.fill_time  = bar.datetime
-        order.commission = commission
+        for order in list(self.pending_orders):
+            if not order.is_active:
+                continue
 
-        self.order_history.append(order)
+            decision = (self.execution_engine.evaluate(order, bar))
+            if not decision.should_fill:
+                if (order.time_in_force == TimeInForce.IOC):
+                    order.status = (OrderStatus.CANCELLED)
+                    self.order_history.append(order)
+                else:
+                    surviving_orders.append(order)
+                continue
 
-        ##### New position
-        if self.entry_price is None:
-            self.entry_price = price
-            self.entry_time  = bar.datetime
+            ########## FILL QUANTITY
+            fill_quantity = min(order.remaining_quantity, available_volume)
+            if fill_quantity <= 0:
+                surviving_orders.append(order)
+                continue
 
-            ### calculate stop from actual fill price
-            if order.stop_price is not None:
-                self.stop_price = (price *(1 - order.stop_price))
+            ########## REDUCE ONLY VALIDATION
+            fill_quantity = (self._apply_reduce_only_limit(order, fill_quantity))
+            if fill_quantity <= 0:
+                order.status = (OrderStatus.REJECTED)
+                order.rejection_reason = ("Reduce-only order would increase or reverse position")
+                self.order_history.append(order)
+                continue
 
-    def _execute_sell(self, order, bar):
-        if order.quantity > self.position:
-            order.status = (OrderStatus.REJECTED)
-            self.order_history.append(order)
-            return
+            ########### SLIPPAGE
+            execution_price = (self.slippage_model.apply(price=decision.price, side=order.side, quantity=fill_quantity, bar=bar))
 
-        price = (bar.open * (1 - self.slippage))
-        value = (price * order.quantity)
-        commission = (value * self.commission_rate)
-        self.cash += (value - commission)
-        pnl = (price - self.average_price) * order.quantity
-        pnl -= commission
-        self.position -= order.quantity
+            ####### PRE-TRADE CHECKS
+            allowed, reason = (self._validate_fill(order, fill_quantity, execution_price))
 
-        order.status     = OrderStatus.FILLED
-        order.fill_price = price
-        order.fill_time  = bar.datetime
-        order.commission = commission
+            if not allowed:
+                order.status = (OrderStatus.REJECTED)
+                order.rejection_reason = (reason)
+                self.order_history.append(order)
+                continue
 
-        self.order_history.append(order)
+            ######### COMMISSION
+            commission = (self.commission_model.calculate(fill_quantity, execution_price))
+           
+            ########## CREATE FILL
+            fill = Fill(order_id=order.id, side=order.side, quantity=fill_quantity, price=execution_price, commission=commission, timestamp=bar.datetime)
 
-        #### For version 1 we expect full exits.
-        if self.position == 0:
-            trade_return = (price / self.entry_price) - 1
-            self.trade_history.append({
-                "entry_time": self.entry_time,
-                "exit_time": bar.datetime,
-                "entry_price": self.entry_price,
-                "exit_price": price,
-                "quantity": order.quantity,
-                "pnl": pnl,
-                "return": trade_return
-            })
+            ########## APPLY FILL
+            self._apply_fill(order, fill)
+            available_volume -= (fill_quantity)
 
-            self.average_price = 0
-            self.entry_price   = None
-            self.entry_time    = None
+            ########## ORDER STATE
+            if (order.remaining_quantity <= 1e-12):
+                order.status = (OrderStatus.FILLED)
+                self.order_history.append(order)
+            else:
+                order.status = (OrderStatus.PARTIALLY_FILLED)
+                if (order.time_in_force == TimeInForce.IOC):
+                    order.status = (OrderStatus.CANCELLED)
+                    self.order_history.append(order)
+                else:
+                    surviving_orders.append(order)
+        self.pending_orders = (surviving_orders)
 
-    
-    def update_equity(self, bar):
-        market_value = (self.position * bar.close)
-        equity = (self.cash + market_value)
+    def _apply_reduce_only_limit(self, order, requested_quantity):
+        if not order.reduce_only:
+            return requested_quantity
+
+        position_qty = (self.position.quantity)
+        if position_qty > 0:
+            if order.side != OrderSide.SELL:
+                return 0.0
+            return min(requested_quantity, position_qty)
+        if position_qty < 0:
+            if order.side != OrderSide.BUY:
+                return 0.0
+            return min(requested_quantity, abs(position_qty))
+        return 0.0
+
+    def _validate_fill(self, order, quantity, price):
+        commission = (self.commission_model.calculate(quantity, price))
+
+        ##### BUY
+        if order.size == OrderSide.BUY:
+            #### if buy is opening position, cash must be available
+            if(self.position.quantity >= 0):
+                required_cash = (quantity * price + commission)
+                if(required_cash > self.cash + 1e-12):
+                    return (False, "Insufficient cash")
+
+        else:
+            #### selling beyond existing long creates a short
+            resulting_position = (self.position.quantity - quantity)
+            if(resulting_position < 0 and not self.allow_short):
+                return (False, "short selling disabled")
+
+        return True, None
+
+
+    def _apply_fill(self, order, fill):
+        notional = (fill.quantity * fill.price)
+        if fill.side == OrderSide.BUY:
+            self.cash -= (notional + fill.commission)
+            signed_quantity = (fill.quantity)
+        else:
+            self.cash += (notional - fill.commission)
+            signed_quantity = (-fill.quantity)
+
+        ### Position
+        realized = (self.position.apply_fill(signed_quantity, fill.price))
+        net_realized_change = (realized - fill.commission)
+        self.realized_pnl += (net_realized_change)
+        self.total_commission += (fill.commission)
+
+        #### Order #########
+        previous_filled = (order.filled_quantity)
+        new_filled      = (previous_filled + fill.quantity)
+        if new_filled > 0:
+            order.average_fill_price = ((order.average_fill_price * previous_filled) + (fill.price * fill.quantity)) / new_filled
+            order.commission += (fill.commission)
+            self.fill_history.append(fill)
+
+    ####### Account value ##########
+    def get_market_value(self, price):
+        return (self.position.market_value(price))
+
+    def get_unrealized_pnl(self, price):
+        return (self.position.unrealized_pnl(price))
+
+    def get_equity(self, price):
+        return (self.cash + self.get_market_value(price))
+
+    ########## Record ###############
+    def undate_equity(self, bar):
+        equity = (self.get_equity(bar.close))
         self.equity_curve.append({
-            "datetime": bar.datetime,
-            "cash": self.cash,
-            "position": self.position,
-            "close": bar.close,
-            "market_value": market_value,
-            "equity": equity
+            "datetime":     bar.datetime,
+            "cash":         self.cash,
+            "position":     self.position.quantity,
+            "average_price":self.position.average_price,
+            "close":        bar.close,
+            "market_value": self.get_market_value(bar.close),
+            "unrealized_pnl":self.get_unrealized_pnl(bar.close),
+            "realized_pnl": self.realized_pnl,
+            "commission":   self.total_commission,
+            "equity":       equity
         })
 
-    ####### current equity ###########
-    def get_equity(self, price):
-        return (self.cash + self.position * price)
-
-    def _close_position(self, price, timestamp, reason):
-            if self.position <= 0:
-                return
-
-            quantity   = self.position
-            value      = (quantity * price)
-            commission = (value *self.commission_rate)
-            proceeds   = (value -commission)
-            self.cash += proceeds
-
-            gross_pnl    = (price - self.entry_price) * quantity
-            net_pnl      = (gross_pnl - commission)
-            trade_return = (price / self.entry_price - 1)
-
-            self.trade_history.append({
-                "entry_time":self.entry_time,
-                "exit_time":timestamp,
-                "entry_price":self.entry_price,
-                "exit_price":price,
-                "quantity":quantity,
-                "pnl":net_pnl,
-                "return":trade_return,
-                "exit_reason":reason
-            })
-
-            self.position = 0
-            self.average_price = 0
-            self.entry_price = None
-            self.entry_time = None
-            self.stop_price = None
-
-    def check_stop_loss(self, bar):
-        if self.position <= 0:
-            return
-
-        if self.stop_price is None:
-            return
-
-        #### stop not touched
-        if bar.low > self.stop_price:
-            return
-
-        #### gap below stop
-        if bar.open <= self.stop_price:
-            execution_price = (bar.open * (1 - self.slippage))
-        else:
-            execution_price = (self.stop_price * (1 - self.slippage))
-
-        self._close_position(price = execution_price, timestamp=bar.datetime, reason="STOP_LOSS")
-
+    ####### force close ############
+    def liquidate(self, bar, reason=ExitReason.MANUAL.value):
+        qty = (self.position.quantity)
+        if abs(qty) < 1e-12:
+            return None
         
+        if qty > 0:
+            order = self.sell(quantity=qty, signal_time=bar.datetime, reduce_only=True, tag=reason)
+        else:
+            order = self.submit_order(side=OrderSide.BUY, quantity=abs(qty), order_type=OrderType.MARKET, signal_time=bar.datetime, reduce_only=True, tag=reason)
+
+        return order
+
+
+
