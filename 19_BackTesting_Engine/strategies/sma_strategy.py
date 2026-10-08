@@ -52,7 +52,9 @@ class SMAStrategy(Strategy):
                 self.broker.buy(quantity=quantity, signal_time=bar.datetime, tag = "SMA_ENTRY")
         elif(bearish_cross and self.broker.position.is_long and not has_pending_orders):
             self.broker.sell(quantity=self.broker.position.quantity, signal_time=bar.datetime, reduce_only=True, tag = "SMA_EXIT")
-            
+
 
         self.previous_fast = fast_sma
         self.previous_slow = slow_sma
+
+        

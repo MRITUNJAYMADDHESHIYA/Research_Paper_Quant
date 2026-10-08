@@ -57,7 +57,6 @@ class Broker:
         self.pending_orders.append(order)
         return order
 
-
     def buy(self, quantity, signal_time=None, tag=None):
         return self.submit_order(side=OrderSide.BUY, quantity=quantity, order_type=OrderType.MARKET, signal_time=signal_time, tag=tag)
 

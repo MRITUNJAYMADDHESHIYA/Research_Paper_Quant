@@ -15,7 +15,7 @@ class PerformanceAnalyzer:
         if equity_df.empty:
             raise ValueError("No equity data available")
         
-        equity = equity_df["equity"].astype(float)
+        equity  = equity_df["equity"].astype(float)
         returns = equity.pct_change().dropna()
         initial = (self.broker.initial_cash)
         final   = equity.iloc[-1]
