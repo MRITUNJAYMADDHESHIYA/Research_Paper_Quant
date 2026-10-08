@@ -1,5 +1,5 @@
 #### One order can generate multiple fills
-from datetime import dataclass
+from dataclasses import dataclass
 from itertools import count
 from broker.enums import OrderSide
 

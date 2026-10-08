@@ -11,23 +11,23 @@ class BacktestEngine:
         print("-"*50)
 
         for bar in self.bars:
-
-            ## 1. execute previous candle orders using current candle open
-            self.broker.execute_orders(bar)
-
-            ### 1.1 check intrabar stop loss
-            self.broker.check_stop_loss(bar)
-
+            ######## execute previous candle orders using current candle open
+            self.broker.process_bar(bar)
             equity = (self.broker.get_equity(bar.close))
-            risk   = (self.risk_manager.update(timestamp=bar.datetime, equity = equity))
+            
+            if self.risk_manager:    
+                self.risk_manager.update(timestamp=bar.datetime, equity = equity)
 
-            ### portfolio kill switch
-            if(self.risk_manager.kill_switch and self.broker.position > 0):
-                self.broker.sell(quantity = self.broker.position, signal_time = bar.datetime)
-            elif self.risk_manager.can_trade():
-                self.strategy.on_bar(bar)
+            can_trade = (self.risk_manager is None or self.risk_manager.can_trade())
+            if can_trade:
                 self.broker.update_equity(bar)
 
+        ###### end of dataset #########
+        final_bar = self.bars[-1]
+        if not self.broker.position.is_flat:
+            self.broker.liquidate(final_bar, reason="END_OF_DATA")
+            self.broker.process_bar(final_bar)
+            self.broker.update_equity(final_bar)  
 
         print("Backtest Finished")
         print("-"*50)

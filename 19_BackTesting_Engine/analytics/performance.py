@@ -1,39 +1,38 @@
 import pandas as pd
 import numpy as np
+from analytics.trade_analyzer import TradeAnalyzer
 
 class PerformanceAnalyzer:
-    def __init__(self, broker, periods_per_year=365*24):
+    def __init__(self, broker, periods_per_year=365*24, risk_free_rate=0.0):
         self.broker           = broker
         self.periods_per_year = periods_per_year
+        self.risk_free_rate   = risk_free_rate
 
     def analyze(self):
         equity_df = pd.DataFrame(self.broker.equity_curve)
-        trades_df = pd.DataFrame(self.broker.trade_history)
+        trades_df = TradeAnalyzer(self.broker).get_trades()
+
         if equity_df.empty:
             raise ValueError("No equity data available")
         
-        equity = equity_df["equity"]
+        equity = equity_df["equity"].astype(float)
         returns = equity.pct_change().dropna()
-
         initial = (self.broker.initial_cash)
         final   = equity.iloc[-1]
         total_return = (final / initial - 1)
 
-        running_max  = equity.cummax()
+        running_max  = np.maximum(equity.cummax(), initial)
         drawdown     = (equity / running_max -1)
         max_drawdown = drawdown.min()
 
-        #### sharpe ratio and sortino ratio
-        if len(returns) > 1 and returns.std() != 0:
-            sharpe = (returns.mean() / returns.std()) * np.sqrt(self.periods_per_year)
-        else:
-            sharpe = 0.0
-
-        negative_returns = (returns[returns < 0])
-        if(len(negative_returns) > 1 and negative_returns.std() != 0):
-            sortino = (returns.mean()/negative_returns.std() * np.sqrt(self.periods_per_year))
-        else:
-            sortion = 0
+        ###### sharpe ratio and sortino ratio
+        periodic_rf     = ((1 + self.risk_free_rate) ** (1 / self.periods_per_year) - 1)
+        excess_returns  = returns - periodic_rf
+        volatility      = (returns.std(ddof=1) if len(returns) > 1 else 0.0)
+        sharpe          = ( excess_returns.mean()  / volatility * np.sqrt(self.periods_per_year)if volatility > 0 else np.nan)
+        downside        = np.minimum(excess_returns, 0.0)
+        downside_deviation = (np.sqrt(np.mean(downside ** 2)) if len(downside) else 0.0)
+        sortino         = (excess_returns.mean() / downside_deviation * np.sqrt(self.periods_per_year) if downside_deviation > 0 else np.nan)
 
         ########## Trades
         total_trades = len(trades_df)

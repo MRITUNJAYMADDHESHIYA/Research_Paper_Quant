@@ -18,8 +18,7 @@ class Broker:
         self.execution_engine = ExecutionEngine(max_volume_participation)
         self.allow_short      = allow_short
 
-        self.position         = Position
-
+        self.position         = Position()
 
         self.pending_orders = []
         self.order_history  = []
@@ -191,7 +190,6 @@ class Broker:
 
         return True, None
 
-
     def _apply_fill(self, order, fill):
         notional = (fill.quantity * fill.price)
         if fill.side == OrderSide.BUY:
@@ -226,7 +224,7 @@ class Broker:
         return (self.cash + self.get_market_value(price))
 
     ########## Record ###############
-    def undate_equity(self, bar):
+    def update_equity(self, bar):
         equity = (self.get_equity(bar.close))
         self.equity_curve.append({
             "datetime":     bar.datetime,

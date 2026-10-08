@@ -38,13 +38,11 @@ class SMAStrategy(Strategy):
         bearish_cross   = (self.previous_fast >= self.previous_slow and fast_sma < slow_sma)
 
         ########### Entry ###########
-        if (bullish_cross and self.broker.position == 0 and self.risk_manager.can_trade()):
-            equity   = (self.broker.get_equity(bar.close))
-            quantity = (self.risk_manager.calculate_position_size(equity=equity, cash=self.broker.cash, entry_price = bar.close))
-            self.broker.buy(quantity = quantity, signal_time = bar.datetime, stop_loss_pct=self.risk_manager.stop_loss_pct)
-
-        elif bearish_cross and self.broker.position > 0:
-            self.broker.sell(quantity = self.broker.position, signal_time = bar.datetime)
-
+        if bullish_cross:
+            if self.broker.position.is_flat:
+                self.broker.buy(quantity=100, signal_time=bar.datetime, tag="SMA_ENTRY")
+        if bearish_cross:
+            if self.broker.position.is_long:
+                self.broker.sell(quantity=self.broker.position.quantity, signal_time = bar.datetime, reduce_only=True, tag="SMA_EXIT")
         self.previous_fast = fast_sma
         self.previous_slow = slow_sma
