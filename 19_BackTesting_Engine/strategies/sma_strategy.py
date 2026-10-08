@@ -20,7 +20,7 @@ class SMAStrategy(Strategy):
         self.risk_manager   = (risk_manager)
 
 
-    def on_bar(self, bar):
+    def on_bar(self, bar, allow_entry=True):
         self.prices.append(bar.close)
         if len(self.prices) < self.slow:
             return
@@ -37,12 +37,22 @@ class SMAStrategy(Strategy):
         bullish_cross   = (self.previous_fast <= self.previous_slow and fast_sma > slow_sma)
         bearish_cross   = (self.previous_fast >= self.previous_slow and fast_sma < slow_sma)
 
+        has_pending_orders = any(order.is_active for order in self.broker.pending_orders)
+
         ########### Entry ###########
-        if bullish_cross:
-            if self.broker.position.is_flat:
-                self.broker.buy(quantity=100, signal_time=bar.datetime, tag="SMA_ENTRY")
-        if bearish_cross:
-            if self.broker.position.is_long:
-                self.broker.sell(quantity=self.broker.position.quantity, signal_time = bar.datetime, reduce_only=True, tag="SMA_EXIT")
+        if(bullish_cross and allow_entry and self.broker.position.is_flat and not has_pending_orders):
+            equity   = self.broker.get_equity(bar.close)
+            quantity = (self.risk_manager.calculate_position_size(equity=equity, cash=self.broker.cash, entry_price=bar.close))
+
+            ##### reserve some cash for fees and price movement
+            max_affordable = (self.broker.cash * 0.99 / (bar.close *(1 + self.broker.commission_model.rate) * (1 + self.broker.slippage_model.rate)))
+            quantity       = min(quantity, max_affordable)
+
+            if quantity > 0:
+                self.broker.buy(quantity=quantity, signal_time=bar.datetime, tag = "SMA_ENTRY")
+        elif(bearish_cross and self.broker.position.is_long and not has_pending_orders):
+            self.broker.sell(quantity=self.broker.position.quantity, signal_time=bar.datetime, reduce_only=True, tag = "SMA_EXIT")
+            
+
         self.previous_fast = fast_sma
         self.previous_slow = slow_sma

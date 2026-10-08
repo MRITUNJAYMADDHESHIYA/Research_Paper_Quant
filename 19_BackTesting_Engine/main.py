@@ -18,7 +18,7 @@ def main():
     results      = engine.run()
 
     
-    analyzer = PerformanceAnalyzer(broker=results, periods_per_year=365*24)
+    analyzer = PerformanceAnalyzer(broker=results, periods_per_year=365*24*60)
     analyzer.print_report()
     trades   = TradeAnalyzer(results).get_trades()
     print(trades.tail(10))

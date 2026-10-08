@@ -8,7 +8,7 @@ class OrderType(Enum):
     MARKET    = "MARKET"
     LIMIT     = "LIMIT"
     STOP      = "STOP"
-    STOP_LIMT = "STOP_LIMIT"
+    STOP_LIMIT = "STOP_LIMIT"
 
 class OrderStatus(Enum):
     NEW              = "NEW"

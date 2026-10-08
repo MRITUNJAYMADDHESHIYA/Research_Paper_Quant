@@ -13,14 +13,24 @@ class BacktestEngine:
         for bar in self.bars:
             ######## execute previous candle orders using current candle open
             self.broker.process_bar(bar)
+
+            ####### current equity 
             equity = (self.broker.get_equity(bar.close))
-            
+
+            ###### update risk
             if self.risk_manager:    
                 self.risk_manager.update(timestamp=bar.datetime, equity = equity)
 
+            #### whether new entries are allowed
             can_trade = (self.risk_manager is None or self.risk_manager.can_trade())
-            if can_trade:
-                self.broker.update_equity(bar)
+
+            ##### update strategy 
+            self.strategy.on_bar(bar, allow_entry=can_trade)
+
+            ### record equity on every trade
+            self.broker.update_equity(bar)
+
+            
 
         ###### end of dataset #########
         final_bar = self.bars[-1]

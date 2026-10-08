@@ -48,7 +48,7 @@ class Broker:
             limit_price=limit_price,
             stop_price=stop_price,
             signal_time=signal_time,
-            time_in_force=time_in_force,
+            time_in_frame=time_in_force,
             reduce_only=reduce_only,
             tag=tag
         )
@@ -175,7 +175,7 @@ class Broker:
         commission = (self.commission_model.calculate(quantity, price))
 
         ##### BUY
-        if order.size == OrderSide.BUY:
+        if order.side == OrderSide.BUY:
             #### if buy is opening position, cash must be available
             if(self.position.quantity >= 0):
                 required_cash = (quantity * price + commission)
@@ -200,9 +200,9 @@ class Broker:
             signed_quantity = (-fill.quantity)
 
         ### Position
-        realized = (self.position.apply_fill(signed_quantity, fill.price))
-        net_realized_change = (realized - fill.commission)
-        self.realized_pnl += (net_realized_change)
+        realized               = (self.position.apply_fill(signed_quantity, fill.price))
+        net_realized_change    = (realized - fill.commission)
+        self.realized_pnl     += (net_realized_change)
         self.total_commission += (fill.commission)
 
         #### Order #########
@@ -210,7 +210,8 @@ class Broker:
         new_filled      = (previous_filled + fill.quantity)
         if new_filled > 0:
             order.average_fill_price = ((order.average_fill_price * previous_filled) + (fill.price * fill.quantity)) / new_filled
-            order.commission += (fill.commission)
+            order.filled_quantity    = new_filled
+            order.commission        += (fill.commission)
             self.fill_history.append(fill)
 
     ####### Account value ##########
