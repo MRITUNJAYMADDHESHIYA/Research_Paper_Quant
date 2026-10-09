@@ -52,134 +52,54 @@ class DonchianStrategy(Strategy):
         if has_pending_orders:
             return
 
-        ######### Entry
-        # ==========================================
-        # LONG AND SHORT ENTRY
-        # ==========================================
-
+        ################ LONG AND SHORT ENTRY ###############################
         if self.broker.position.is_flat:
-
             if not allow_entry:
                 return
 
             equity = self.broker.get_equity(bar.close)
-
             stop_distance = atr * self.atr_multiplier
 
             if stop_distance <= 0:
                 return
 
-            risk_quantity = (
-                equity * self.risk_manager.risk_per_trade
-                / stop_distance
-            )
+            risk_quantity         = (equity * self.risk_manager.risk_per_trade / stop_distance)
+            max_position_quantity = (equity * self.risk_manager.max_position_pct / bar.close)
+            quantity              = min(risk_quantity, max_position_quantity)
 
-            max_position_quantity = (
-                equity * self.risk_manager.max_position_pct
-                / bar.close
-            )
-
-            quantity = min(
-                risk_quantity,
-                max_position_quantity
-            )
-
-            # LONG ENTRY
+            #################### LONG ENTRY ####################
             if bar.close > entry_high:
-
                 # Cash-funded long
-                affordable_quantity = (
-                    self.broker.cash * 0.98
-                    / (
-                        bar.close
-                        * (1 + self.broker.commission_model.rate)
-                        * (1 + self.broker.slippage_model.rate)
-                    )
-                )
-
-                quantity = min(
-                    quantity,
-                    affordable_quantity
-                )
+                affordable_quantity = (self.broker.cash * 0.98 / (bar.close * (1 + self.broker.commission_model.rate) * (1 + self.broker.slippage_model.rate)))
+                quantity = min(quantity, affordable_quantity)
 
                 if quantity > 0:
+                    self.broker.buy(quantity=quantity, signal_time=bar.datetime, tag="LONG_ENTRY")
 
-                    self.broker.buy(
-                        quantity=quantity,
-                        signal_time=bar.datetime,
-                        tag="LONG_ENTRY"
-                    )
-
-            # SHORT ENTRY
+            #################### SHORT ENTRY ###########################
             elif bar.close < entry_low:
-
                 if quantity > 0:
+                    self.broker.sell(quantity=quantity, signal_time=bar.datetime, reduce_only=False, tag="SHORT_ENTRY")
 
-                    self.broker.sell(
-                        quantity=quantity,
-                        signal_time=bar.datetime,
-                        reduce_only=False,
-                        tag="SHORT_ENTRY"
-                    )
-
-
-        # ==========================================
-        # LONG EXIT
-        # ==========================================
-
+        ############## LONG EXIT ##############################
         elif self.broker.position.is_long:
+            new_stop = (bar.close - self.atr_multiplier * atr)
 
-            new_stop = (
-                bar.close
-                - self.atr_multiplier * atr
-            )
+            self.trailing_stop = (new_stop if self.trailing_stop is None else max(self.trailing_stop, new_stop))
+            if (bar.close < exit_low or bar.close < self.trailing_stop):
+                self.broker.sell(quantity=self.broker.position.quantity, signal_time=bar.datetime, reduce_only=True, tag="LONG_EXIT")
 
-            self.trailing_stop = (
-                new_stop
-                if self.trailing_stop is None
-                else max(self.trailing_stop, new_stop)
-            )
-
-            if (
-                bar.close < exit_low
-                or bar.close < self.trailing_stop
-            ):
-
-                self.broker.sell(
-                    quantity=self.broker.position.quantity,
-                    signal_time=bar.datetime,
-                    reduce_only=True,
-                    tag="LONG_EXIT"
-                )
-
-
-        # ==========================================
-        # SHORT EXIT
-        # ==========================================
-
+        ################## SHORT EXIT ##############################
         elif self.broker.position.is_short:
+            new_stop = (bar.close + self.atr_multiplier * atr)
+            self.trailing_stop = ( new_stop if self.trailing_stop is None else min(self.trailing_stop, new_stop))
+            if ( bar.close > exit_high or bar.close > self.trailing_stop):
+                self.broker.submit_order(side=OrderSide.BUY, quantity=abs(self.broker.position.quantity), order_type=OrderType.MARKET, signal_time=bar.datetime, reduce_only=True, tag="SHORT_EXIT")
 
-            new_stop = (
-                bar.close
-                + self.atr_multiplier * atr
-            )
 
-            self.trailing_stop = (
-                new_stop
-                if self.trailing_stop is None
-                else min(self.trailing_stop, new_stop)
-            )
-
-            if (
-                bar.close > exit_high
-                or bar.close > self.trailing_stop
-            ):
-
-                self.broker.submit_order(
-                    side=OrderSide.BUY,
-                    quantity=abs(self.broker.position.quantity),
-                    order_type=OrderType.MARKET,
-                    signal_time=bar.datetime,
-                    reduce_only=True,
-                    tag="SHORT_EXIT"
-                )
+# Condition	Action
+# Close above previous 20-candle high	BUY
+# Close below previous 10-candle low	SELL
+# Price falls below ATR trailing stop	SELL
+# No breakout	HOLD
+# We will use a 14-period ATR and a trailing-stop distance of 2 × ATR.
