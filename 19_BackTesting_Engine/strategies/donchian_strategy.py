@@ -97,7 +97,7 @@ class DonchianStrategy(Strategy):
                 self.broker.submit_order(side=OrderSide.BUY, quantity=abs(self.broker.position.quantity), order_type=OrderType.MARKET, signal_time=bar.datetime, reduce_only=True, tag="SHORT_EXIT")
 
 
-# Condition	Action
+# Condition	Action:-----
 # Close above previous 20-candle high	BUY
 # Close below previous 10-candle low	SELL
 # Price falls below ATR trailing stop	SELL
