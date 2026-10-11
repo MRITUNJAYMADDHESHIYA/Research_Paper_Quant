@@ -2,6 +2,7 @@ from data.loader import CSVLoader
 from broker.broker import Broker
 from strategies.sma_strategy import SMAStrategy
 from strategies.donchian_strategy import DonchianStrategy
+from strategies.time_series_momentum import TimeSeriesMomentumStrategy
 
 from risk.risk_manager import RiskManager
 from engine.backtest import BacktestEngine
@@ -16,7 +17,8 @@ def main():
     broker       = Broker(initial_cash=INITIAL_CAPITAL, commission_rate=0.0002, slippage_rate=0.0001, max_volume_participation=0.10, allow_short=True)
     risk_manager = RiskManager(initial_capital=INITIAL_CAPITAL, risk_per_trade=0.01, stop_loss_pct=0.02, daily_drawdown_limit=0.10,max_position_pct=0.95)
     #strategy     = SMAStrategy(broker=broker, risk_manager=risk_manager, fast=10, slow=30)
-    strategy     = DonchianStrategy(broker=broker, risk_manager=risk_manager, entry_period=20, exit_period=10, atr_period=14, atr_multiplier=2.0)
+    #strategy     = DonchianStrategy(broker=broker, risk_manager=risk_manager, entry_period=20, exit_period=10, atr_period=14, atr_multiplier=2.0)
+    strategy     = TimeSeriesMomentumStrategy(broker=broker, risk_manager=risk_manager, momentum_period=20, volatility_period=120, target_volatility=0.20, periods_per_year=365*24*60)
     engine       = BacktestEngine(bars=bars, strategy=strategy, broker=broker, risk_manager=risk_manager)
     results      = engine.run()
 
