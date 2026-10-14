@@ -4,3 +4,7 @@
 4.I am simulating asset paths for derivatives pricing
 5.Today is 02-09-2026, I am Prepearing for cat + Trading Mannual + writting codes for algo(python + DSA(c++))
 
+######### Important Market Regime ##############
+1. Regime:- Volatility Regime 
+2. Market:- Trending or mean-reversion
+3. Macro-condition:- Global economy(Inflation, GDP growth, energy Price)
