@@ -8,3 +8,5 @@
 1. Regime:- Volatility Regime 
 2. Market:- Trending or mean-reversion
 3. Macro-condition:- Global economy(Inflation, GDP growth, energy Price)
+
+

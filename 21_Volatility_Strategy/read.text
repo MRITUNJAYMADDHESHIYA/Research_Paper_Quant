@@ -1,0 +1,47 @@
+///////////////////////////////////////////////////////////////
+I am going to test this on 5min candle:-
+
+1. Find the volatility region using any method(statical, ml, technical indicators)
+-->Rolling realized volatility:- calculate log return(r = ln(pt/pt-1))
+-->then estimate volatility using a rolling window:- let 20 candle back
+-->then define regimes using 2 thresholds in (low-0, medium-1, high-2)
+
+2.sideways and trending market 
+--> linear-regression(R^2)
+--> ADX(average directional index):-measures trend strength
+--> Kaufman efficiency ratio(ER) --------------->i am using this 
+
+3.Stretgies:-
+-->Low volatility:-    sideways (mean reversion using z-score) 
+                 :-    trending (donchain breakout)
+-->medium volatility:- momentum 
+-->High volatility:-   sideways (mean reversion using z-score)
+                       trending (donchain breakout)
+
+
+//////////////////////////////////////////////////
+1.I am using NQ-future market on mt5
+2.only one position at a time open after sl or tp open next position on the basis of volatility and merket
+3.using 1:1 Risk-reward use 20 points
+
+
+//////////////////////// Structure ////////////////////
+1.M5-candle
+2.realized volatility(20)--->classify(0/1/2)
+3.low and high(side + trending)--->use z-score and donchain strategy
+ .medium----->use momentum strategy
+4.deviation--> Maximum price difference you request the broker to tolerate
+ .example:- buy price = 25000, deviation=30, mt5 point = 0.01 then
+            allowed deviation = 30*0.01 = 0.3
+            I can execute in between 24999.7 to 25000.3
+
+
+
+ENTRY CONDITIONS:--------->
+Regime	        Condition	    Long signal	                Short signal
+Low + sideways	ER below 0.30	Z-score below −2	        Z-score above +2
+Low + trending	ER above 0.50	Close above Donchian high	Close below Donchian low
+Medium	        RV  thresholds	Positive momentum	        Negative momentum
+High + sideways	ER below 0.30	Z-score below −2	        Z-score above +2
+High + trending	ER above 0.50	Close above Donchian high	Close below Donchian low
+
