@@ -45,3 +45,18 @@ Medium	        RV  thresholds	Positive momentum	        Negative momentum
 High + sideways	ER below 0.30	Z-score below −2	        Z-score above +2
 High + trending	ER above 0.50	Close above Donchian high	Close below Donchian low
 
+
+
+
+
+
+######################## TO-DO 
+1.Medium strategy is bad:- I have to look something good
+
+
+
+
+
+###################### Good ##################
+1.Pridicting volatility is really good
+2.low and high-volatility regimes :- and simple strategy is really working good
